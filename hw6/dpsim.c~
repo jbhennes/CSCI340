@@ -1,0 +1,220 @@
+#include "dpsim.h"
+#include <signal.h>
+
+
+static const unsigned int NUM_PHILOSOPHERS = 5;
+static const unsigned int NUM_CHOPSTICKS = 5;
+
+static int chopsticks[5];
+static pthread_mutex_t mutex[5];
+static pthread_t philosophers[5];
+
+//Function that checks for deadlock
+int deadlock() {
+	
+	// This function checks the table to see if the chopsticks are all in the
+	//  hands of different philosophers
+
+	//counter variable
+	int i;
+
+	for ( i = 0; i < NUM_CHOPSTICKS; i++ ) {
+		// if the chopstick is not taken
+		if ( chopsticks[i] == -1 ) {
+			return 0;
+		}
+		//If both sticks on either side of the philosopher are in use, we can't have deadlock.
+		else if ( chopsticks[i] == chopsticks[(i + 1) % 5] ) {
+			return 0;
+		} 
+	}
+	return 1;
+	
+} //end deadlock function
+
+
+void* th_main( void* th_main_args ) {
+
+	// ---------------------------------------
+	// TODO: you add your implementation here
+	
+	/* Main Thread Function:
+
+ void* th_main( void* th_main_args )
+ 
+ Note: NO mutex locks or unlocks should be performed by main 
+ thread, however the chopsticks array is being read by the 
+ main_thread, and is vulnerable to race conditions. You must 
+ consider the effect of these race conditions, and the 
+ correctness of the check/comparsions and output of the 
+ main_thread. 
+
+ */
+	//Counter variables
+	int i;
+	
+	//Initialize all element values in the chopsticks array to -1
+	for (i = 0; i < NUM_CHOPSTICKS; i++) {
+		chopsticks[i] = -1;
+	}
+
+	/*Create a thread for each philosopher (hint: use philosophers[5] array)
+ - If a error condition occurs, then immediately exit this function with status value 1.*/
+	for (i = 0; i < NUM_PHILOSOPHERS; i++) {
+		if ( pthread_create( &(philosophers[i]), NULL, th_phil, (void *)i ) != 0 ) {
+		printf("Thread failed to create for philosopher %d in the th_main function\n", i);
+		exit(1);
+	}
+
+	
+	//Execute a infinite loop that does the following:
+	  /*    If a deadlock condition is found then 
+ 		display deadlock
+ 		terminate the loop and goto step 4
+ 			otherwise 
+ 		display which philosophers are eating
+ 		and then call the delay function (you specify nanosec sleep value)
+ 
+ An portion of example output:
+ Philopsher(s) 0, 2 are eating
+ Philospher(s) 1 are eating
+ .
+ .
+ .
+ Deadlock condition (0,1,2,3,4) ... terminating */
+
+	for (;;) {
+		
+		if ( chopsticks[0] == 0 && chopsticks[1] == 1 && chopsticks[2] == 2 && chopsticks[3] == 3 && chopsticks[4] == 4 ){
+			printf("Deadlock condition... terminating\n");
+			break;
+		}
+		printf("Philosopher(s) ");
+		for ( i = 0; i < NUM_CHOPSTICKS; i++ ) {
+			//Logic for determining who is eating
+                	if ( chopsticks[i] == chopsticks[(i + 1) % 5]) {
+                    		printf("%d,", i);
+                	}
+            	}
+            	printf(" are eating.\n");
+		delay(10000);
+           	
+	}
+
+	//Kill each philosopher thread
+	for (i = 0; i < NUM_PHILOSOPHERS; i++ ) {
+		pthread_kill( philosophers[i], 9); //NOTE 9 -->SIGKILL
+	}
+
+	//Exit the main thread with status value equal to 0.
+	pthread_exit(0);
+	
+	
+
+	}
+	//so warnings don't go off
+	return NULL;
+
+} // end th_main function
+
+
+void* th_phil( void* th_phil_args ) {
+
+	// ---------------------------------------
+	// TODO: you add your implementation here
+
+	//Get the philosopher id (hint: use th_phil_args)
+	//NOTE: cast to int from void type
+	long philosopher_id = ( long )th_phil_args;
+
+	//Execute an infinite loop that does the following:
+	/* - call the delay function for thinking (you specify nanosec sleep value)
+ 	- call the eat function (argument is the philosopher id) */
+	for (;;) {
+		delay(20000);
+		eat(philosopher_id);
+	}
+
+} // end th_phil function
+
+
+void delay( long nanosec ) {
+
+	struct timespec t_spec;
+
+	t_spec.tv_sec = 0;
+	t_spec.tv_nsec = nanosec;
+
+	nanosleep( &t_spec, NULL );
+
+} // end think function
+
+
+void eat( int phil_id ) {
+
+	// ---------------------------------------
+	// TODO: you add your implementation here
+
+	/**************************************************
+ 
+ 	Eat Function: 
+ 	void eat( int phil_id )
+ 
+	------------------------------------------------
+ 	In this function perform the following steps:
+ 	------------------------------------------------
+ 	This philosopher, phil_id, picks up chopstick phil_id
+ 	(i.e. the right chopstick) then delays for no more than 
+ 	20,000 nanoseconds. Next the philosopher picks up the 
+ 	left chopstick. Note: mutual exclusion is necessary when 
+ 	updating a shared resource. After having picked up both 
+	chopsticks (as described) the philosopher will delay a 
+ 	number of nanoseconds that is determined by you experimentally.
+ 	After the delay completes, the philosopher will release 
+ 	the two chopsticks in the reverse order in which they were
+ picked up.
+ 
+ 	*/
+	//Creating an int to represent the left chopstick
+	int left_side = ( phil_id + 1 ) % 5;
+	
+	//logic to pass the philosopher by if their chopstick is taken
+	if ( chopsticks[phil_id] != -1 && chopsticks[phil_id] != phil_id ) {
+		return;
+	}
+
+   	// pick up left chopstick
+        pthread_mutex_lock( &(mutex[phil_id]) );
+        chopsticks[phil_id] = phil_id;
+
+	//1,000 ns delay between picking up chopsticks
+     	delay(10000);
+
+	//Logic for if the left chopstick is already taken
+	if ( chopsticks[left_side] != -1 ) {
+		return;
+	}
+
+	//Picking up the left chopstick
+	pthread_mutex_lock( &(mutex[left_side]) );
+	chopsticks[left_side] = phil_id;
+
+
+	//70,000 ns delay for eating
+     	delay(100000);
+
+    	//releasing chopsticks in reverse order in which they were picked up
+	chopsticks[left_side] = -1;
+	pthread_mutex_unlock( &(mutex[left_side]) );
+
+
+	//10,000 ns between putting down chopsticks
+	delay(10000);
+
+	//Putting down the chopsticks
+	chopsticks[phil_id] = -1;
+	pthread_mutex_unlock( &(mutex[phil_id]) );
+
+} // end eat function
+
+
